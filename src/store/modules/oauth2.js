@@ -5,7 +5,6 @@ import * as types from '../mutation-types'
 const state = {
   config: {
     clientId: null,
-    clientSecret: null,
     baseUrl: null,
   },
   token: {
@@ -14,15 +13,15 @@ const state = {
     tokenType: null,
     expiresAt: null,
   },
-  authenticated: false
+  authenticated: false,
+  refreshing: false,
 }
 
 // mutations
 const mutations = {
-  [types.OAUTH2_CONFIGURE] (state, { baseUrl, clientId, clientSecret }) {
+  [types.OAUTH2_CONFIGURE] (state, { baseUrl, clientId }) {
     state.config.baseUrl = baseUrl
     state.config.clientId = clientId
-    state.config.clientSecret = clientSecret
   },
 
   [types.OAUTH2_SET_TOKEN] (state, { accessToken, refreshToken, tokenType, expiresIn }) {
@@ -34,7 +33,7 @@ const mutations = {
     expiresAt.setTime(expiresAt.getTime() + (expiresIn * 1000))
     state.token.expiresAt = expiresAt
 
-    state.authenticated = (
+    state.authenticated = !!(
       state.token.accessToken &&
       state.token.refreshToken &&
       state.token.tokenType &&
@@ -44,6 +43,10 @@ const mutations = {
 
   [types.OAUTH2_SET_AUTHENTICATED] (state, { authenticated }) {
     state.authenticated = authenticated
+  },
+
+  [types.OAUTH2_SET_REFRESHING] (state, { refreshing }) {
+    state.refreshing = refreshing
   }
 }
 
@@ -54,7 +57,6 @@ const actions = {
       Vue.http.post(store.state.config.baseUrl + '/oauth/v2/token/', {
         grant_type: 'password',
         client_id: store.state.config.clientId,
-        client_secret: store.state.config.clientSecret,
         username: username,
         password: password,
       }, {
@@ -75,11 +77,22 @@ const actions = {
   },
 
   [types.OAUTH2_REFRESH_TOKEN] (store) {
-    return new Promise((resolve, reject) => {
+    let refreshing = store.state.refreshing
+
+    if (refreshing) {
+      return new Promise((resolve, reject) => {
+        refreshing.then((res) => {
+          resolve(res)
+        }, (err) => {
+          reject(err)
+        })
+      })
+    }
+
+    let refresher = new Promise((resolve, reject) => {
       Vue.http.post(store.state.config.baseUrl + '/oauth/v2/token/', {
         grant_type: 'refresh_token',
         client_id: store.state.config.clientId,
-        client_secret: store.state.config.clientSecret,
         refresh_token: store.state.token.refreshToken,
       }, {
         emulateJSON: true,
@@ -90,15 +103,20 @@ const actions = {
           tokenType: response.body.token_type,
           expiresIn: response.body.expires_in,
         })
-
+        store.commit(types.OAUTH2_SET_REFRESHING, { refreshing: false })
+    
         resolve(response)
       }, (response) => {
         // If we fail to refresh our token, clear all auth state..
         store.commit(types.OAUTH2_SET_TOKEN, {})
+        store.commit(types.OAUTH2_SET_REFRESHING, { refreshing: false })
 
         reject(response)
       });
     })
+    store.commit(types.OAUTH2_SET_REFRESHING, { refreshing: refresher })
+
+    return refresher
   },
 }
 

@@ -1,0 +1,8 @@
+{
+    "oauth2": {
+        "config": {
+            "baseUrl": "http://ninetofiver:8000",
+            "clientId": "generated_client_id"
+        }
+    }
+}

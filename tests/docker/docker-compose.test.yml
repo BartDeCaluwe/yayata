@@ -1,0 +1,42 @@
+version: '3'
+
+services:
+  cypress:
+    build:
+      context: ./../../
+      dockerfile: tests/docker/cypress.Dockerfile
+    depends_on:
+      - yayata
+      - ninetofiver
+    volumes:
+      - ./../../cypress:/code/cypress
+      - ./../../cypress.json:/code/cypress.json
+    environment:
+      - CYPRESS_username=admin
+      - CYPRESS_password=password123
+    entrypoint:
+      - /bin/bash
+      - -c
+      - >
+        export NINETOFIVER_HOST=$$(getent hosts ninetofiver | awk '{ print $$1 }'):8000 &&
+        export NINETOFIVER_BASE_URL="http://$$NINETOFIVER_HOST" &&
+        ./wait-for-it.sh $$NINETOFIVER_HOST:8000 -- echo '925r is up' &&
+        export YAYATA_HOST=$$(getent hosts yayata | awk '{ print $$1 }'):8080 &&
+        export YAYATA_BASE_URL="http://$$YAYATA_HOST" &&
+        ./wait-for-it.sh $$YAYATA_HOST -- echo 'YAYATA is up' &&
+        export CYPRESS_baseUrl="$$YAYATA_BASE_URL/#/" &&
+        ./node_modules/.bin/cypress run
+    tty: true
+    stdin_open: true
+
+  yayata:
+    build:
+      context: ./../../
+      dockerfile: tests/docker/yayata.Dockerfile
+    volumes:
+      - ./yayata.config.json:/code/src/static/cfg/config.json
+
+  ninetofiver:
+    build:
+      context: ./../../
+      dockerfile: tests/docker/ninetofiver.Dockerfile

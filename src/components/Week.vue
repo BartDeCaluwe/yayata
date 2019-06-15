@@ -1,1004 +1,547 @@
 <template lang="pug">
-.calendar
-  .row
-
-    .col-sm-4.text-sm-left
-      .btn-group(role='group' aria-label='Calendar controls')
-        button.btn.btn-secondary(type='button' @click.prevent='selectPreviousWeek()')
-          i.fa.fa-angle-double-left
-          |  &nbsp;Previous
-
-    h1.col-sm-4.text-sm-center {{ selectedYear }} Week {{ selectedWeek }}
-
-    .col-sm-4.text-sm-right
-      .btn-group(role='group' aria-label='Calendar controls')
-        button.btn.btn-secondary(type='button' v-on:click.prevent='selectNextWeek()')
+div
+  div(class='row justify-content-between align-items-center')
+    div(class='col-lg-auto text-center')
+      div(class='btn-group' role='group')
+        button(class='btn btn-sm btn-outline-dark' type='button' v-on:click.prevent='selectPreviousWeek()')
+          i(class='fa fa-angle-double-left')
+          | &nbsp;Previous
+        button(class='btn btn-sm btn-outline-dark disabled' type='button')
+          | {{ date | moment('Wo [week of] YYYY') }}
+        button(class='btn btn-sm btn-outline-dark' type='button' v-on:click.prevent='selectNextWeek()')
           | Next&nbsp;
-          i.fa.fa-angle-double-right
-      
-    //- Getting the months now shown and allowing routing back to where you came from
-    span.col-sm-12.text-sm-center
-      router-link(:to='{ name: "calendar_month", params: { year: selectedYear, month: periodStartMonth.month()+1 } }')
-        h3 {{ periodStartMonth | moment('MMMM')}}
-      div(v-if='periodEndMonth.month() != periodStartMonth.month()')
-        router-link(:to='{ name: "calendar_month", params: { year: selectedYear, month: periodEndMonth.month()+1 } }')
-          h3 {{ periodEndMonth | moment('MMMM')}}
-
-      hr
-  
-  //- Buttons to toggle what to display
-  .row
-    //- .col.align-self-start
-    .btn-group-wrap
-      div.btn-group.week-format-buttons
-        button.btn.btn-secondary(v-on:click='setWeekFormat("workweek")') Workweek
-        button.btn.btn-secondary(v-on:click='setWeekFormat("weekend")') Weekend
-        button.btn.btn-secondary(v-on:click='setWeekFormat("fullweek")') Full week
-    //- .col.align-self-end
-  //- Cards
-  .calendar-header
-
-    //- Header w days
-    .card-group
-      .card.card-inverse(v-for='(weekDay, i) in daysOfWeek')
-        .btn-group.whereabout(role='group' v-if='whereabouts && timesheet_locations && timesheet')
-          button.btn.btn-secondary.btn-sm.dropdown-toggle.whereabout#btnGroupDrop(type='button' data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" , :class='getWhereaboutClass()') {{ timesheet_locations[i] }}
-          .dropdown-menu(aria-labelledby='btnGroupDrop')
-            a.dropdown-item(v-for='location in whereabout_locations' @click='setWhereabout(location, weekDay, i)') {{ location }}
-        .card-header.card-info
-          .pull-left 
-            h6(class='hidden-lg-down') <strong>{{ weekDay | moment('dddd') }}</strong>
-            h5 &nbsp;<strong>{{ weekDay | moment('DD/MM')}}</strong>
-          .pull-right
-            .hidden-md-down
-              toggle-button(
-                @change='toggleStandby(weekDay)', 
-                :value='getStandbyStatus(weekDay)', 
-                color='#DB4C4C', 
-                :sync='true', 
-                :labels='toggleButtonLabels', 
-                :width='65',
-                :disabled='!timesheet || !timesheetActive'
-              )
-            .hidden-lg-up
-              toggle-button(
-                @change='toggleStandby(weekDay)', 
-                :value='getStandbyStatus(weekDay)', 
-                color='#DB4C4C', 
-                :sync='true',
-                :width='35',
-                :disabled='!timesheet || !timesheetActive'
-              )
+          i(class='fa fa-angle-double-right')
 
 
-        .card-head-foot.text-xs-center(v-if='weekDay < new Date()')
-          //- Check if timesheet status is active
-          template(v-if='timesheet && timesheetActive')
-            //- Performance creation is disabled for future activityPerformances
-            hovercard(:id='"hc_submit_" + i', :component='getHoverCardComponent(weekDay)', @success='onSubmitSuccess')
+    div(class='col-lg-auto text-center')
+      hr(class='d-lg-none')
 
-              //- Visible text
-              button.btn.btn-success.btn-submit
-                i.fa.fa-plus
+      div(class='btn-group' role='group')
+        b-button(size='sm' variant='outline-dark' :pressed='showNoWork' v-on:click='setShowNoWork(true)') All days
+        b-button(size='sm' variant='outline-dark' :pressed='!showNoWork' v-on:click='setShowNoWork(false)') Working days
+        router-link(
+          class="btn btn-sm btn-outline-dark"
+          :to='{name: "calendar_month", params: { year: date.format("YYYY"), month: date.format("MM") } }'
+        ) {{ date | moment('MMMM YYYY') }}
+        router-link(
+          v-if='moment(date).add(6, "day").format("YYYY-MM") != date.format("YYYY-MM")'
+          class="btn btn-sm btn-outline-dark"
+          :to='{name: "calendar_month", params: { year: moment(date).add(6, "day").format("YYYY"), month: moment(date).add(6, "day").format("MM") } }'
+        ) {{ moment(date).add(6, "day") | moment('MMMM YYYY') }}
 
-            template(v-if='leaves')
-              small.text-muted
-                | {{ getDurationTotal(weekDay) }}<strong> / {{ getHoursTotal(weekDay) }} h</strong>
-            .pull-right.quota__icon
-              i.fa(:class='getDailyQuota(weekDay)')
-            hr.smaller-horizontal-hr.smaller-vertical-hr
+  hr
 
-          //- Body of performances
-          //- Check if timesheet status status is active
-          template( v-if='timesheet && timesheetActive')
-            .card-block.performance-list
-              //- Add leaves if any
-              template(v-if='leaves')
-                li.list-group-item.performance_entry(
-                  v-for='leave in getDaysLeaves(weekDay.date())',
-                  :class='[list-group, performance-list]'
+  b-modal(ref='performanceModal' hide-header=true hide-footer=true lazy=true size='lg')
+    PerformanceWidget(
+      :performance='selectedPerformance'
+      :date='selectedDate'
+      :duration='selectedDuration'
+      v-on:success='onPerformanceModified()'
+    )
+
+  b-modal(ref='leaveModal' hide-header=true hide-footer=true lazy=true size='lg')
+    LeaveWidget(
+      :leave='selectedLeave'
+      :date='selectedDate'
+      v-on:success='onLeaveModified()'
+    )
+
+  b-modal(ref='attachmentModal' hide-header=true hide-footer=true lazy=true size='lg')
+    AttachmentWidget(
+      :leave='selectedLeave'
+      v-on:success='onAttachmentModified()'
+    )
+
+  b-modal(ref='standbyModal' hide-header=true hide-footer=true lazy=true size='lg')
+    StandbyWidget(
+      :date='selectedDate'
+      :performances='selectedStandby'
+      v-on:success='onStandbyModified()'
+    )
+
+  b-modal(ref='whereaboutModal' hide-header=true hide-footer=true lazy=true size='lg')
+    WhereaboutWidget(
+      :date='selectedDate'
+      :whereabout='selectedWhereabout'
+      v-on:success='onWhereaboutModified()'
+    )
+
+  div(v-if='rangeInfo')
+    div
+      strong Total:&nbsp;
+      | {{ rangeInfo.total_hours | round }} / {{ rangeInfo.work_hours | round }} hours
+
+    hr
+
+    div(class='calendar-row row')
+      div(
+        class='calendar-day col-md'
+        v-for='(dayDetails, date) in sortByKey(rangeInfo.details)'
+        v-bind:class="getCalendarDayClasses(date)"
+      )
+        div(class='card' :id='"calendar-day-" + date')
+          div(class='card-header text-center') {{ date | moment('ddd, MMMM Do') }}
+
+          div(class='card-text text-muted text-center' v-bind:style='getCalendarDayProgressStyle(date)')
+            small
+              strong {{ dayDetails.total_hours | round }}
+              | &nbsp;/ {{ dayDetails.work_hours | round }} hours
+
+          ul(class='list-group list-group-flush')
+            //- Holidays
+            li(class='list-group-item p-2' v-for='holiday in dayDetails.holidays')
+              div(class='d-flex mb-0 justify-content-between')
+                div {{ holiday.display_label }}
+                div 🌐
+
+            //- Leave
+            template(v-for='leave in dayDetails.leaves' v-if='dayDetails.leaves')
+              template(v-for='leave_date in leave.leavedate_set' v-if='isSameDay(leave_date.starts_at, date)')
+                li(
+                  class='list-group-item list-group-item-action cursor-pointer p-2'
+                  v-on:click.prevent='((leave.status != "approved") && getTimesheetForDay(date)) ? editLeave(date, leave) : null'
                 )
-                  .list-group-item-heading {{ leave.leave_type | leaveTypeAsString }}
-                  .list-group-item-text
-                    div {{ leave.description }}
-                    hr.small-vertical-hr
-                    small
-                      i.fa.fa-plane.pull-left
-                      .pull-right {{ leave.leaveDuration}} h 
-              li.list-group-item.performance-entry(
-                v-for='(perf, i) in getDaysPerformances(weekDay.date())', 
-                :key='perf.id',
-                :class='[list-group, performance-list]'
+                  div(class='d-flex justify-content-between')
+                    div {{ leave.leave_type.display_label }}
+                    div(v-if='leave.status != "approved"' v-b-tooltip title='Pending leave') ❓🏖️
+                    div(v-else v-b-tooltip title='Leave') 🏖️
+                  div(class='d-flex justify-content-between')
+                    div
+                      div(class='text-muted')
+                        small {{ leave_date.starts_at | moment('HH:mm') }} - {{ leave_date.ends_at | moment('HH:mm') }}
+                      div(v-if='leave.description' class='text-muted')
+                        small {{ leave.description }}
+                    div
+                      span(class='cursor-pointer' v-b-tooltip title='Attachments' v-on:click.stop='editAttachment(date, leave)')
+                        small(v-if='leave.attachments.length') {{ leave.attachments.length }}
+                        | 📎
+
+            //- Whereabouts
+            template(v-for='whereabout in whereabouts' v-if='whereabouts')
+              li(
+                class='list-group-item list-group-item-action p-2 cursor-pointer'
+                v-if='isSameDay(whereabout.starts_at, date)'
+                v-on:click.prevent='getTimesheetForDay(date) ? editWhereabout(date, whereabout) : null'
               )
-                hovercard(:component='getHoverCardComponent(weekDay, perf)', @success='onSubmitSuccess')
-                  //- Visible text
-                  .list-group-item-heading {{ findContractName(perf.contract) }}
-                  .list-group-item-text 
-                    div {{ perf.description }}
-                    hr.smaller-vertical-hr
-                    small
-                      .pull-left {{ findPerformanceTypeName(perf.performance_type) }}
-                      .pull-right {{ perf.duration }} h
+                div(class='d-flex justify-content-between')
+                  div {{ whereabout.location.display_label }}
+                  div(v-b-tooltip title='Whereabout') 📍
+                div(class='text-muted')
+                  small {{ whereabout.starts_at | moment('HH:mm') }} - {{ whereabout.ends_at | moment('HH:mm') }}
+                div(v-if='whereabout.description' class='text-muted')
+                  small {{ whereabout.description }}
 
-          template(v-else)
-            .card-block.performance-list
-            li.list-group-item.performance-entry.disabled(
-              v-for='(perf, i) in getDaysPerformances(weekDay.date())', 
-              :key='perf.id',
-              :class='[list-group, performance-list]'
+            //- Standby performance
+            li(
+              class='list-group-item list-group-item-action p-2 cursor-pointer'
+              v-for='performance in dayDetails.standby_performances'
+              v-on:click.prevent='getTimesheetForDay(date) ? editStandby(date) : null'
             )
-              .list-group-item-heading {{ findContractName(perf.contract) }}
-                .list-group-item-text 
-                  div {{ perf.description }}
-                  hr.smaller-vertical-hr
-                  small
-                    .pull-left {{ findPerformanceTypeName(perf.performance_type) }}
-                    .pull-right {{ perf.duration }} h
+              div(class='d-flex justify-content-between')
+                div {{ performance.contract.display_label }}
+                div(v-b-tooltip title='Standby / On-call') 💤
 
+            //- Activity performance
+            li(
+              class='list-group-item list-group-item-action p-2 cursor-pointer'
+              v-for='performance in dayDetails.activity_performances'
+              v-on:click.prevent='getTimesheetForDay(date) ? editPerformance(date, performance) : null'
+            )
+              div(class='d-flex justify-content-between')
+                div {{ performance.contract.display_label }}
+                div {{ performance.duration | round }}h
+              div(class='d-flex justify-content-between text-muted')
+                small {{ performance.contract_role.display_label }}
+                small {{ performance.performance_type.display_label }}
+              div(v-if='performance.description' class='text-muted')
+                vue-markdown(class='rendered-markdown' :source='performance.description')
+
+          div(class='card-body p-0')
+
+          div(class='card-footer' v-if='getTimesheetForDay(date)')
+            div(class='text-center')
+              div(class='btn-group')
+                button(class='btn btn-outline-dark btn-sm' @click='addPerformance(date)' v-b-tooltip="{boundary: 'window'}" title='Log performance')
+                  | ⏳
+                button(
+                  v-if='supportContracts && supportContracts.length'
+                  class='btn btn-outline-dark btn-sm'
+                  v-b-tooltip="{boundary: 'window'}"
+                  title='Standby / On-call'
+                  @click='editStandby(date)'
+                )
+                  | 💤
+                button(class='btn btn-outline-dark btn-sm' @click='addWhereabout(date)' v-b-tooltip="{boundary: 'window'}" title='Log whereabout')
+                  | 📍
+                button(class='btn btn-outline-dark btn-sm' @click='addLeave(date)' v-b-tooltip="{boundary: 'window'}" title='Request leave')
+                  | 🏖️
 </template>
 
 <script>
-import { mapState } from 'vuex';
 import * as types from '../store/mutation-types';
 import store from '../store';
+import preferences from '../preferences'
 import moment from 'moment';
-import HoverCard from './tools/HoverCard.vue';
-import PerformanceForm from './forms/PerformanceForm.vue';
+import VueMarkdown from 'vue-markdown';
+import PerformanceWidget from './widgets/PerformanceWidget.vue';
+import StandbyWidget from './widgets/StandbyWidget.vue';
+import WhereaboutWidget from './widgets/WhereaboutWidget.vue';
+import LeaveWidget from './widgets/LeaveWidget.vue';
+import AttachmentWidget from './widgets/AttachmentWidget.vue';
 
 export default {
-  name: 'week',
+  name: 'Week',
+
+  mixins: [],
 
   components: {
-    hovercard: HoverCard,
-    performanceform: PerformanceForm,
-  },
-
-  watch: {
-    '$route' (to, from) {
-      this.selectedWeek = to.params.week;
-      this.selectedYear = to.params.year;
-    },
-  },
-
-  computed: {
-    leaves: function() {
-      if(store.getters.leaves) {
-        return store.getters.leaves.filter((leave) => {
-          return leave.user === store.getters.user.id
-        });
-      }
-    },
-    
-    timesheetActive: function() {
-      if(this.timesheet)
-        return this.timesheet.status === store.getters.timesheet_statuses[1];
-    },
-
-    timesheet: function() {
-
-      if(store.getters.timesheets && this.selectedYear && this.selectedWeek){
-        let month = moment(this.selectedYear).add(this.selectedWeek, 'weeks').month() + 1;
-
-        return store.getters.timesheets.find((ts) => {
-          return ts.year === this.selectedYear && ts.month === month;
-        });
-      }
-    },
-
-    whereabouts: function() {
-      if(store.getters.whereabouts && this.daysOfWeek) {
-        let whereabouts = [];
-
-        store.getters.whereabouts.filter((w) => {
-          this.daysOfWeek.forEach((day) => {
-            if(day.format('D') == w.day)
-              whereabouts.push(w);
-          });
-        });
-
-        return whereabouts
-      }
-    },
-
-    // Gets the locations of this week
-    timesheet_locations: function() {
-      if(this.whereabouts && this.daysOfWeek && store.getters.whereabouts && store.getters.timesheets){
-        var day = this.daysOfWeek[0];
-        var timesheet = store.getters.timesheets.find(x => 
-          x.month == (day.month() + 1)
-          &&
-          x.year == day.year()
-        );
-
-        var timesheet_locations = [];
-        this.daysOfWeek.forEach((day) => {
-          if(timesheet){
-            var wa = this.whereabouts.find(w => w.day == day.format('D') && w.timesheet == timesheet.id)
-            wa = wa ? wa.location : 'Select whereabout';
-          } else {
-            var wa = 'Select whereabout';
-          }
-          timesheet_locations.push(wa);
-        });
-        return timesheet_locations
-      }
-    },
-
-    work_schedule: function() {
-      if(store.getters.work_schedule) {
-        return store.getters.work_schedule;
-      }
-    },
-
-    //Get the month corresponding with the start of the week
-    periodStartMonth: function() {
-      var year = this.selectedYear || moment().year();
-      var week = this.selectedWeek || moment().isoWeek();
-
-      return moment().isoWeekYear(year).isoWeek(week).startOf('isoWeek');
-    },
-
-    //Get the month corresponding with the end of the week
-    periodEndMonth: function() {
-      var year = this.selectedYear || moment().year();
-      var week = this.selectedWeek || moment().isoWeek();
-
-      return moment().isoWeekYear(year).isoWeek(week).endOf('isoWeek');
-    },
-
-    daysOfWeek: function() {
-      return this.getDaysOfWeek(this.currentWeekFormat);
-    },
-
-  },
-
-  created: function() {
-    this.reloadWhereabouts();
-    store.dispatch(types.NINETOFIVER_RELOAD_EMPLOYMENT_CONTRACTS, {
-      params: {
-        contractuser__user__id: store.getters.user.id
-      }
-    });
-    if(!store.getters.leaves){
-      store.dispatch(types.NINETOFIVER_RELOAD_LEAVES, {
-        params: {
-          user_id: store.getters.user.id
-        }
-      });
-    }
-  },
-
-  methods: {
-    getWhereaboutClass: function() {
-      // Check if status is active
-      return (this.timesheet && this.timesheetActive) ? '' : 'disabled';
-    },
-
-    reloadWhereabouts: function() {
-      if(store.getters.user){
-        store.dispatch(types.NINETOFIVER_RELOAD_TIMESHEETS, {
-          filter_future_timesheets: false
-        });
-        
-        return store.dispatch(types.NINETOFIVER_RELOAD_WHEREABOUTS, {
-        });
-      }
-    },
-    
-    patchWhereabout: function(whereaboutId, location, day, timesheetId) {
-      store.dispatch(types.NINETOFIVER_API_REQUEST, {
-        path: '/whereabouts/' + whereaboutId + '/',
-        method: 'PATCH',
-        body: {
-          location: location,
-          day: day.date(),
-          timesheet: timesheetId
-        },
-        emulateJSON: true
-      }).then( () => {
-        this.reloadWhereabouts();
-        this.$toast('Updated whereabout to ' + location + '!', 
-          {
-            id: 'whereabout-toast',
-            horizontalPosition: 'right',
-            verticalPosition: 'top',
-            duration: 1000,
-            transition: 'slide-down',
-            mode: 'override'
-          }
-        );
-      }).catch((error) => {
-        console.log(error);
-        this.$toast('Something went wrong. Check console for more information', 
-          { 
-            id: 'standby-toast',
-            horizontalPosition: 'right',
-            verticalPosition: 'top',
-            duration: 1000,
-            transition: 'slide-down',
-            mode: 'override'
-          });
-      });
-    },
-
-    createWhereabout: function(location, day, timesheetId) {
-      store.dispatch(types.NINETOFIVER_API_REQUEST, {
-        path: '/whereabouts/',
-        method: 'POST',
-        body: {
-          location: location,
-          day: day.date(),
-          timesheet: timesheetId
-        },
-        emulateJSON: true
-      }).then((res) => {
-        if(res) {
-          this.reloadWhereabouts();
-          this.$toast('Set whereabout to ' + location + '!',
-            { 
-              id: 'whereabout-toast',
-              horizontalPosition: 'right',
-              verticalPosition: 'top',
-              duration: 2000,
-              transition: 'slide-down',
-              mode: 'override'
-            });
-        } 
-      }).catch((error) => {
-        console.log(error);
-        this.$toast('Something went wrong. Check console for more information', 
-          { 
-            id: 'standby-toast',
-            horizontalPosition: 'right',
-            verticalPosition: 'top',
-            duration: 1000,
-            transition: 'slide-down',
-            mode: 'override'
-          });
-      });
-    },
-
-    // Create new whereabout
-    setWhereabout: function(location, day, index) {
-      // Get timesheet
-      store.dispatch(types.NINETOFIVER_RELOAD_TIMESHEETS, {
-        filter_future_timesheets: false,
-      }).then( () => {
-
-        var timesheet = store.getters.timesheets.find(x => 
-          x.month == (day.month() + 1)
-          &&
-          x.year == day.year()
-        );
-
-        // Timesheet not found; make a new one
-        if(!timesheet) {
-          this.createNewTimeSheet(day).then( (response) => {
-            var whereabout = store.getters.whereabouts.find(w => w.day == day.format('D') && w.timesheet === response.data.id)
-            // Whereabout already exists
-            if(whereabout){
-              this.patchWhereabout(whereabout.id, location, day, response.data.id);
-            // Whereabout does not exist
-            } else {
-              this.createWhereabout(location, day, response.data.id);
-            }
-          });
-        } else {
-          var whereabout = store.getters.whereabouts.find(w => w.day == day.format('D') && w.timesheet === timesheet.id)
-          // Whereabout already exists
-          if(whereabout){
-            this.patchWhereabout(whereabout.id, location, day, timesheet.id);
-          // Whereabout does not exist
-          } else {
-            this.createWhereabout(location, day, timesheet.id);
-          }
-        }
-      });
-    },
-
-    getDailyQuota: function(day) {
-      var performed = this.getDurationTotal(day);
-      var required = this.getHoursTotal(day);
-
-      var quota = required > 0 ? (performed / required) : 1;
-
-      return quota >= 1 ? 'fa-check' : '';
-    },
-
-    //Returns correct component for the hovercard
-    getHoverCardComponent: function(date, perf) {
-
-      return {
-        name: 'PerformanceForm',
-        properties: {
-          performance: perf,
-          date: date
-        }
-      };
-    },
-
-    //Get whether user is on standby
-    getStandbyStatus: function(day) {
-      return (this.standbyPerformances.findIndex(x => x.day == day.format('D')) !== -1)
-    },
-
-    //Get the amount of hours spent 
-    getDurationTotal: function(day) {
-      let total = 0;
-
-      for(let val of this.activityPerformances.filter(x => x.day == day.format('D'))){
-        total += parseFloat(val.duration);
-      }
-      
-      let date = day.date();
-      // Add hours with leave of this day to total
-      if(this.leaves) {
-        this.leaves.forEach((leave) => {
-          let ld = leave.leavedate_set.find((ld) => moment(ld.starts_at).isSame(moment([this.selectedYear, 5, date ]), 'day'));
-          let leaveDuration = 0;
-          if(ld && leave.leavedate_set.length > 1){
-            // do things with leaves that span multiple days here
-            // if ld is the first or last leavedate calculate amount of hours in leave
-            if(ld === leave.leavedate_set[0] || ld === leave.leavedate_set[leave.leavedate_set.length -1]){
-              let endOfDay = moment([this.selectedYear, 5, date, 17, 30]);
-              let startOfDay = moment([this.selectedYear, 5, date, 9]);
-              
-              let startDiff = moment(ld.starts_at).subtract(2, 'hours').diff(startOfDay, 'hours');
-              let endDiff = moment(endOfDay).add(2, 'hours').diff(ld.ends_at, 'hours');
-
-              startDiff = startDiff > 0 ? startDiff : 0;
-              endDiff = endDiff > 0 ? endDiff : 0;
-
-              let leaveHours = startDiff + endDiff;
-              leaveHours = leaveHours < 0 || leaveHours > 8 ? 0 : leaveHours;
-              leaveDuration = 8 - leaveHours;
-            } else {
-              // else assume that 8 leave hours are consumed
-              leaveDuration = 8;
-            }
-            total += leaveDuration;
-          } else if (ld) {
-            let endOfDay = moment([this.selectedYear, 5, date, 17, 30]);
-            let startOfDay = moment([this.selectedYear, 5, date, 9]);
-
-            let startDiff = moment(ld.starts_at).subtract(2, 'hours').diff(startOfDay, 'hours');
-            let endDiff = moment(endOfDay).add(2, 'hours').diff(ld.ends_at, 'hours');
-            leaveDuration = (8 - (startDiff + endDiff));
-
-            startDiff < 0 ? total += 8 : total += leaveDuration;
-          }
-        });
-      }
-      return total;
-    },
-
-    //Get total hours/day from the work_schedule per user
-    getHoursTotal: function(day) {
-      if(this.work_schedule)
-        return this.work_schedule[day.format('dddd').toLowerCase()];
-    },
-
-    //Make the call to standby
-    toggleStandby: function(day) {
-      if(this.getStandbyStatus(day))
-        this.deleteStandby(this.standbyPerformances.find(x => x.day == day.format('D')));
-      else
-        this.setStandby(day);
-    },
-
-    //Delete standbyperformance for specific day
-    deleteStandby: function(standby) {
-      store.dispatch(
-        types.NINETOFIVER_API_REQUEST,
-        {
-          path: '/my_performances/standby/' + standby.id + '/',
-          method: 'DELETE',
-          params: {
-            id: standby.id
-          }
-        }).then((delRes) => {
-          if(delRes.status == 204) {
-            this.$toast('User no longer on standby', 
-              { 
-                id: 'standby-toast',
-                horizontalPosition: 'right',
-                verticalPosition: 'top',
-                duration: 1000,
-                transition: 'slide-down',
-                mode: 'override'
-              });
-            this.onSubmitSuccess();
-          }
-        }).catch((error) => {
-          console.log( error );
-          this.$toast('Something went wrong. Check console for more information', 
-            { 
-              id: 'standby-toast',
-              horizontalPosition: 'right',
-              verticalPosition: 'top',
-              duration: 1000,
-              transition: 'slide-down',
-              mode: 'override'
-            });  
-        });
-    },
-
-    //Set standbyperformance for specific day
-    setStandby: function(day) {
-
-      //Get the timesheet corresponding to the date of the day
-      var timesheet = store.getters.timesheets.find(x => 
-        x.month == (day.month() + 1)
-        &&
-        x.year == day.year()
-      );
-
-      if(timesheet) {
-        store.dispatch(
-          types.NINETOFIVER_API_REQUEST,
-          {
-            path: '/my_performances/standby/',
-            method: 'POST',
-            body: {
-              timesheet: timesheet.id,
-              // TODO: implement contract
-              day: day.date()
-            },
-            emulateJSON: true,
-          }
-        ).then((response) => {
-          if(response.status == 201) {
-            this.$toast('User on standby', 
-              { 
-                id: 'standby-toast',
-                horizontalPosition: 'right',
-                verticalPosition: 'top',
-                duration: 1000,
-                transition: 'slide-down',
-                mode: 'override'
-              });
-            this.onSubmitSuccess();
-          } 
-        }).catch((error) => {
-          console.log(error);
-          this.$toast('Something went wrong. Check console for more information', 
-            { 
-              id: 'standby-toast',
-              horizontalPosition: 'right',
-              verticalPosition: 'top',
-              duration: 1000,
-              transition: 'slide-down',
-              mode: 'override'
-            });            
-        });
-      } else {
-        //Timesheet was not found, so a new one is made for that date
-        store.dispatch(
-          types.NINETOFIVER_API_REQUEST,
-          {
-            path: '/my_timesheets/',
-            method: 'POST',
-            body: {
-              month: day.month() + 1,
-              year: day.year(),
-              closed: false
-            },
-            emulateJSON: true,
-          }
-        ).then((tsRes) => {
-          store.dispatch(
-            types.NINETOFIVER_API_REQUEST,
-            {
-              path: '/my_performances/standby/',
-              method: 'POST',
-              body: {
-                timesheet: tsRes.data.id,
-                // TODO: implement contract
-                day: day.date()
-              },
-              emulateJSON: true,
-            }
-          ).then((spRes) => {
-            if(spRes.status == 201) {
-              this.$toast('User on standby', 
-                { 
-                  id: 'standby-toast',
-                  horizontalPosition: 'right',
-                  verticalPosition: 'top',
-                  duration: 1000,
-                  transition: 'slide-down',
-                  mode: 'override'
-                });
-              this.onSubmitSuccess();
-            }
-          }).catch((error) => {
-            console.log(error);
-            this.$toast('Something went wrong. Check console for more information', 
-              { 
-                id: 'standby-toast',
-                horizontalPosition: 'right',
-                verticalPosition: 'top',
-                duration: 1000,
-                transition: 'slide-down',
-                mode: 'override'
-              });
-          });
-        }).catch((error) => {
-          console.log(error);
-          this.$toast('Something went wrong. Check console for more information', 
-            { 
-              id: 'standby-toast',
-              horizontalPosition: 'right',
-              verticalPosition: 'top',
-              duration: 1000,
-              transition: 'slide-down',
-              mode: 'override'
-            });
-        });
-      }
-
-    },
-    createNewTimeSheet: function(day) {
-      return store.dispatch(types.NINETOFIVER_API_REQUEST, {
-        path: '/my_timesheets/',
-        method: 'POST',
-        body: {
-          month: day.month() + 1,
-          year: day.year(),
-          closed: false
-        },
-        emulateJSON: true,
-      }).catch((error) => {
-        console.log(error);
-        this.$toast('Something went wrong. Check console for more information', 
-          { 
-            id: 'standby-toast',
-            horizontalPosition: 'right',
-            verticalPosition: 'top',
-            duration: 1000,
-            transition: 'slide-down',
-            mode: 'override'
-          });
-      });
-    },
-
-    //Sets the popover placement, based on the weekindex and weekformat
-    setPopoverPlacement: function(val) {
-      var day = val + 1;
-      var range = this.currentWeekFormat.end - this.currentWeekFormat.start + 1;
-
-      return ( day / range >= 0.7 ) ? 'left' : 'right';
-    },
-
-    //Set Week format
-    setWeekFormat: function(format) {
-      this.currentWeekFormat = store.getters.week_formatting[format];
-    },
-
-    //When performance properly submitted
-    onSubmitSuccess: function() {
-      this.getDaysOfWeek(this.currentWeekFormat);
-    },
-
-    //Find the contract's name that belongs to the contract id
-    findContractName: function(id) {
-      if(store.getters.contracts) {
-        return store.getters.contracts.find(x => x.id == id)['name'];
-      }
-    },
-
-    //Find the contract's customerName that belongs to the contract id
-    findCustomerName: function(contractID) {
-      if(store.getters.contracts) {
-        return store.getters.contracts.find(x => x.id == contractID)['customerName'];
-      }
-    },
-
-    //Find the performance_type's name
-    findPerformanceTypeName: function(id) {
-      if(store.getters.performance_types) {
-        return store.getters.performance_types.find(x => x.id == id)['name'];
-      }
-    },
-
-    //Go to specified week, get params from URI
-    setSelectedWeek: function (year, week) {
-      this.$router.push({
-        name: 'calendar_week',
-        params: {
-          year: year,
-          week: week,
-        },
-      })
-    },
-
-    //Push params for next week into route
-    selectNextWeek: function () {
-      var year = parseInt(this.selectedYear);
-      var week = parseInt(this.selectedWeek) + 1;
-      this.activityPerformances = [];
-      this.standbyPerformances = [];
-
-      if (week > moment().isoWeekYear(year).isoWeeksInYear()) {
-        week = 1;
-        year++;
-      }
-
-      this.setSelectedWeek(year, week)
-    },
-
-    //Push params for last week into route
-    selectPreviousWeek: function () {
-      var year = parseInt(this.selectedYear);
-      var week = parseInt(this.selectedWeek) - 1;
-      this.activityPerformances = [];
-      this.standbyPerformances = [];
-
-      if (week == 0) {
-        year--;
-        week = moment().isoWeekYear(year).isoWeeksInYear();
-      }
-
-      this.setSelectedWeek(year, week)
-    },
-
-    //Make the days/week to be drawn
-    getDaysOfWeek: function() {
-      var week = this.selectedWeek;
-      var year = this.selectedYear;
-      var index = 0;
-      var period = this.currentWeekFormat;
-      var daysofweek = [];
-      var dayOfWeek = moment().isoWeekYear(year).isoWeek(week).startOf('isoWeek');
-
-      for(var i = 1; i < 8; i++) {
-        if(i >= period.start && i <= period.end) 
-          daysofweek[index++] = dayOfWeek;
-        
-        dayOfWeek = moment(dayOfWeek).add(1, ('days'));
-      }
-
-      var arr = daysofweek.map(o => { return o.date()  });
-      this.makePerformances(arr);
-
-      return daysofweek;
-    },
-
-    //Calls performance with correct params
-    makePerformances: function(arr) {
-      var start, end, month;
-      this.activityPerformances = [];
-      this.standbyPerformances = [];
-
-      //If the index of the lowest value in the array is not the first,
-      //the days are transitioning from one month to the other
-      if(arr.indexOf(Math.min.apply(Math, arr)) != 0) {
-        
-        //Get index of highest in array (automatically final day of month that)
-        var maxIndex = arr.indexOf(Math.max.apply(Math, arr));
-
-        start = arr[0],
-        end = arr[maxIndex],
-        //Months are zeroindexed in MomentJS, not in our DB
-        month = this.periodStartMonth.month() + 1;
-
-        this.callPerformance(month, start, end);
-
-        //Reset the vars for use further below
-        start = arr[maxIndex + 1],
-        end = arr[arr.length - 1],
-        month = this.periodEndMonth.month() + 1;
-
-        this.callPerformance(month, start, end);
-      
-      } else {
-        start = arr[0],
-        end = arr[arr.length - 1],
-        month = this.periodStartMonth.month() + 1;
-
-        this.callPerformance(month, start, end);
-      }
-    },
-
-    //Make the my_performances call & push into arr
-    callPerformance: function(month, start, end) {
-
-      store.dispatch(types.NINETOFIVER_API_REQUEST, {
-        path: '/my_performances/',
-        params: {
-          timesheet__year: this.selectedYear,
-          timesheet__month: month,
-          day__gte: start,
-          day__lte: end,
-        },
-      }).then((response) => {
-        // this.activityPerformances = this.activityPerformances.concat( response.data.results );
-        response.data.results.forEach(p => {
-          if(p.type === 'StandbyPerformance')
-            this.standbyPerformances = this.standbyPerformances.concat(p);
-          else if(p.type === 'ActivityPerformance')
-            this.activityPerformances = this.activityPerformances.concat(p);
-          else
-            console.log( p );
-        });
-      }).catch((error) => {
-        console.log(error);
-        this.$toast('Something went wrong. Check console for more information', 
-          { 
-            id: 'standby-toast',
-            horizontalPosition: 'right',
-            verticalPosition: 'top',
-            duration: 1000,
-            transition: 'slide-down',
-            mode: 'override'
-          });
-      });
-    },
-
-    //Get the activityPerformances linked to a day
-    getDaysPerformances: function(day) {
-      var result = [];
-
-      for(var i = 0; i < this.activityPerformances.length; i++)
-        if(this.activityPerformances[i].day == day)
-          result.push(this.activityPerformances[i]);
-
-      return result.reverse();
-    },
-
-    getDaysLeaves: function(day) {
-      let result = [];
-      let month = moment().week(this.selectedWeek).month();
-      this.leaves.forEach((leave) => {
-        let ld = leave.leavedate_set.find((ld) => moment(ld.starts_at).isSame(moment([this.selectedYear, month, day ]), 'day'));
-        let leaveDuration = 0;
-        if(ld && leave.leavedate_set.length > 1) {
-          // if ld is the first or last leavedate calculate amount of hours in leave
-          if(ld === leave.leavedate_set[0] || ld === leave.leavedate_set[leave.leavedate_set.length -1]){
-            let endOfDay = moment([this.selectedYear, month, day, 17, 30]);
-            let startOfDay = moment([this.selectedYear, month, day, 9]);
-
-            let startDiff = moment(ld.starts_at).subtract(2, 'hours').diff(startOfDay, 'hours');
-            let endDiff = moment(endOfDay).add(2, 'hours').diff(ld.ends_at, 'hours');
-
-            startDiff = startDiff > 0 ? startDiff : 0;
-            endDiff = endDiff > 0 ? endDiff : 0;
-
-            let leaveHours = startDiff + endDiff;
-            leaveHours = leaveHours < 0 || leaveHours > 8 ? 0 : leaveHours;
-            leaveDuration = 8 - leaveHours;
-          } else {
-            // else assume that 8 leave hours are consumed
-            leaveDuration = 8;
-          }
-          leave.leaveDuration = leaveDuration + '.00';
-          result.push(leave)
-        } else if (ld) {
-          let endOfDay = moment([this.selectedYear, month, day, 17, 30]);
-          let startOfDay = moment([this.selectedYear, month, day, 9]);
-
-          let startDiff = moment(ld.starts_at).subtract(2, 'hours').diff(startOfDay, 'hours');
-          let endDiff = moment(endOfDay).add(2, 'hours').diff(ld.ends_at, 'hours');
-
-          leaveDuration = (8 - (startDiff + endDiff));
-          leave.leaveDuration = leaveDuration + '.00';
-          result.push(leave);
-        }
-      })
-      return result;
-    }
+    VueMarkdown,
+    PerformanceWidget,
+    StandbyWidget,
+    WhereaboutWidget,
+    LeaveWidget,
+    AttachmentWidget,
   },
 
   data () {
-
     return {
-      selectedYear: parseInt(this.$route.params.year),
-      selectedWeek: parseInt(this.$route.params.week),
-
-      activityPerformances: [],
-      standbyPerformances: [],
-      currentWeekFormat: store.getters.week_formatting["workweek"],
-
-      toggleButtonLabels: {
-        checked: 'On call',
-        unchecked: 'Off call'
-      },
-
-      whereabout_locations: store.getters.whereabout_locations,
+      date: null,
+      weekDays: _.range(7).map(x => moment().day(x + 1).format('dddd')),
+      rangeInfo: null,
+      whereabouts: null,
+      selectedPerformance: null,
+      selectedStandby: null,
+      selectedTimesheet: null,
+      selectedDuration: null,
+      selectedWhereabout: null,
+      selectedLeave: null,
+      selectedDay: null,
+      selectedDate: null,
     }
+  },
 
+  watch: {
+    '$route': function(to, from) {
+      this.setDate()
+      this.reloadData()
+    },
+  },
+
+  created: function() {
+    this.setDate()
+    this.reloadData()
+
+    new Promise((resolve, reject) => {
+      if (!store.getters.open_timesheets) {
+        store.dispatch(types.NINETOFIVER_RELOAD_TIMESHEETS).then(() => resolve())
+      } else{
+        resolve()
+      }
+    })
+
+    new Promise((resolve, reject) => {
+      if (!store.getters.active_contracts) {
+        store.dispatch(types.NINETOFIVER_RELOAD_CONTRACTS).then(() => resolve())
+      } else{
+        resolve()
+      }
+    })
+  },
+
+  computed: {
+    showNoWork: () => preferences.get(preferences.key.CALENDAR_SHOW_NO_WORK, true),
+
+    supportContracts: function() {
+      if (store.getters.active_contracts) {
+        return store.getters.active_contracts.filter(contract => {
+          return contract.type == 'SupportContract'
+        })
+      }
+    },
+  },
+
+  methods: {
+    setShowNoWork: function(state) {
+      preferences.set(preferences.key.CALENDAR_SHOW_NO_WORK, state)
+    },
+
+    moment: function(args) {
+      return moment(args)
+    },
+
+    sortByKey: function(obj) {
+      let res = {}
+      Object.keys(obj).sort().forEach(key => {
+        res[key] = obj[key]
+      })
+      return res
+    },
+
+    selectNextWeek: function() {
+      let new_date = moment(this.date).add(1, 'week')
+
+      this.$router.push({
+        name: 'calendar_week',
+        params: {
+          week: new_date.format('WW'),
+          year: new_date.format('GGGG')
+        }
+      })
+    },
+
+    selectPreviousWeek: function() {
+      let new_date = moment(this.date).subtract(1, 'week')
+
+      this.$router.push({
+        name: 'calendar_week',
+        params: {
+          week: new_date.format('WW'),
+          year: new_date.format('GGGG')
+        }
+      })
+    },
+
+    setDate: function() {
+      this.date = moment().isoWeekYear(this.$route.params.year).isoWeek(this.$route.params.week).startOf('isoWeek')
+    },
+
+    reloadData: function() {
+      let start = moment(this.date).startOf('isoWeek')
+      let end = moment(this.date).endOf('isoWeek')
+
+      // Reload range info
+      store.dispatch(types.NINETOFIVER_API_REQUEST, {
+        path: '/range_info/',
+        params: {
+          'from': start.format('YYYY-MM-DD'),
+          'until': end.format('YYYY-MM-DD'),
+          'daily': true,
+          'detailed': true
+        }
+      }).then(res => {
+        this.rangeInfo = res.data
+      })
+
+      // Reload whereabouts
+      store.dispatch(types.NINETOFIVER_API_REQUEST, {
+        path: '/whereabouts/',
+        params: {
+          'starts_at__range': `${start.format('YYYY-MM-DDTHH:mm:ssZZ')},${end.format('YYYY-MM-DDTHH:mm:ssZZ')}`
+        }
+      }).then(res => {
+        this.whereabouts = res.data.results
+      })
+    },
+
+    isCurrentDay: function(val) {
+      return moment().format('YYYY-MM-DD') == moment(val).format('YYYY-MM-DD')
+    },
+
+    isSameDay: function(valOne, valTwo) {
+      return moment(valOne).format('YYYY-MM-DD') == moment(valTwo).format('YYYY-MM-DD')
+    },
+
+    isWorkingDay: function(val) {
+      return this.rangeInfo.details[val].work_hours
+    },
+
+    isDayComplete: function(val) {
+      return this.rangeInfo.details[val].remaining_hours === 0
+    },
+
+    getCalendarDayClasses: function(date) {
+      let isComplete = this.isDayComplete(date)
+      let isCurrent = this.isCurrentDay(date)
+      let isWorking = this.isWorkingDay(date)
+
+      return {
+        'calendar-day-current': isCurrent,
+        'calendar-day-nowork': !isWorking,
+        'calendar-day-complete': isComplete,
+        'calendar-day-incomplete': !isComplete,
+        'calendar-day-hidden': (!isWorking && !this.showNoWork),
+      }
+    },
+
+    getTimesheetForDay: function(date) {
+      if (store.getters.open_timesheets) {
+        return store.getters.open_timesheets.filter(timesheet => {
+          return (timesheet.status == 'active') && (timesheet.year == moment(date).format('YYYY')) && (timesheet.month == moment(date).format('MM'))
+        })[0]
+      }
+    },
+
+    selectDay: function(date) {
+      this.selectedTimesheet = this.getTimesheetForDay(date)
+      this.selectedDay = moment(date).date()
+      this.selectedDate = moment(date)
+      this.selectedDuration = Math.round(this.rangeInfo.details[date].remaining_hours * 100) / 100
+    },
+
+    editStandby: function(date) {
+      this.selectDay(date)
+      this.selectedStandby = null
+      this.$refs.standbyModal.show()
+    },
+
+    onStandbyModified: function() {
+      this.$refs.standbyModal.hide()
+      this.selectedStandby = null
+      this.reloadData()
+    },
+
+    editPerformance: function(date, performance) {
+      this.selectDay(date)
+      this.selectedPerformance = performance
+      this.$refs.performanceModal.show()
+    },
+
+    addPerformance: function(date) {
+      this.selectDay(date)
+      this.selectedPerformance = null
+      this.$refs.performanceModal.show()
+    },
+
+    onPerformanceModified: function() {
+      this.$refs.performanceModal.hide()
+      this.selectedPerformance = null
+      this.reloadData()
+    },
+
+    editWhereabout: function(date, whereabout) {
+      this.selectDay(date)
+      this.selectedWhereabout = whereabout
+      this.$refs.whereaboutModal.show()
+    },
+
+    addWhereabout: function(date) {
+      this.selectDay(date)
+      this.selectedWhereabout = null
+      this.$refs.whereaboutModal.show()
+    },
+
+    onWhereaboutModified: function() {
+      this.$refs.whereaboutModal.hide()
+      this.selectedWhereabout = null
+      this.reloadData()
+    },
+
+    addLeave: function(date) {
+      this.selectDay(date)
+      this.selectedLeave = null
+      this.$refs.leaveModal.show()
+    },
+
+    editLeave: function(date, leave) {
+      this.selectDay(date)
+      this.selectedLeave = leave
+      this.$refs.leaveModal.show()
+    },
+
+    onLeaveModified: function() {
+      this.$refs.leaveModal.hide()
+      this.selectedLeave = null
+      this.reloadData()
+    },
+
+    editAttachment: function(date, leave) {
+      this.selectDay(date)
+      this.selectedLeave = leave
+      this.$refs.attachmentModal.show()
+    },
+
+    onAttachmentModified: function() {
+      // this.$refs.attachmentModal.hide()
+      // this.selectedLeave = null
+      this.reloadData()
+    },
+
+    getCalendarDayProgressStyle: function(date) {
+      let style = {}
+
+      if (this.rangeInfo && this.rangeInfo.details) {
+        let pct = (this.rangeInfo.details[date].total_hours / this.rangeInfo.details[date].work_hours) * 100
+        pct = pct > 100 ? 100 : pct
+        style['background'] = `linear-gradient(90deg, rgba(223, 255, 248, 0.75) 0%, rgba(223, 255, 248, 0.75) ${pct}%, rgba(255,255,255,0) ${pct}%, rgba(255,255,255,0) 100%)`
+      }
+
+      return style
+    }
   },
 
   filters: {
-    leaveTypeAsString: function(val) {
-      return store.getters.leave_types.find(lt => lt.id === val).display_label;
-    }
- },
+    round: function(val) {
+      return Math.round(val * 100) / 100
+    },
+  },
 }
 </script>
 
 <style lang="less" scoped>
+@calendar-day-padding: 5px;
 
-.performance-list {
-  background-color: #f5f5f5;
-  font-size: 95%;
-  color: rgb(15,15,15);
-  position: relative;
-  padding: 0px;
-
-  .list-group-item-heading {
-    font-weight: bold;
-  }
+.calendar-row {
+  margin-left: -(@calendar-day-padding);
+  margin-right: -(@calendar-day-padding);
 }
 
+.calendar-day {
+  padding-bottom: @calendar-day-padding;
+  padding-left: @calendar-day-padding;
+  padding-right: @calendar-day-padding;
 
-.calendar-header {
   .card {
-    background-color: #f8f8f8;
+    border-top-width: 3px;
+  }
+
+  @media all and (min-width: 768px) {
+    // width: 14.2857%;
+    // float: left;
+    min-height: 3rem;
+    overflow: auto;
+    // display: block;
+
+    .card {
+      min-height: 30rem;
+    }
+  }
+
+  &.calendar-day-hidden {
+    display: none;
   }
 }
 
-.pre-scrollable {
-  max-height: 55vh;
-  overflow: visible;
-}
+.calendar-day-nowork {
+  .card {
+    opacity: 0.5;
 
-.performance-entry {
-  padding: 5px;
-  margin: 2px;
-  position: relative;
-  border-width: 1px;
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.performance-entry.disabled {
-  height: 80px;
-}
-
-.smaller-horizontal-hr {
-  margin-left: 6px;
-  margin-right: 6px;
-}
-
-.smaller-vertical-hr {
-  margin-top: 2px;
-  margin-bottom: 8px;
-}
-
-
-.card-head-foot {
-  position: relative;
-  padding: 0px;
-  float: none;
-  vertical-align: bottom;
-
-  .btn-submit {
-    width: 100%;
-    border-radius: 0;
-  }
-
-  .quota__icon {
-    color: rgba(0,0,0,0.5);
-    position: relative;
-    top: 1px;
-    left: -10px;
+    &:hover {
+      opacity: 1;
+    }
   }
 }
 
-.btn-group-wrap {
-    text-align: center;
-    margin-bottom: .5rem;
+.calendar-day-complete {
+  .card {
+    border-color: rgba(0, 215, 0, 0.5);
+  }
 }
 
-div.btn-group {
-    margin: 0 auto; 
-    text-align: center;
-    width: inherit;
-    display: inline-block;
+.calendar-day-incomplete {
+  .card {
+    border-color: rgba(215, 0, 0, 0.5);
+  }
 }
 
-.whereabout {
-  width: 100%
+.calendar-day-current {
+  .card {
+    background: repeating-linear-gradient(
+      45deg,
+      rgba(0, 215, 0, 0.25),
+      rgba(0, 215, 0, 0.25) 10px,
+      rgba(0, 215, 0, 0.1) 10px,
+      rgba(0, 215, 0, 0.1) 20px
+    );
+  }
 }
-
 </style>
